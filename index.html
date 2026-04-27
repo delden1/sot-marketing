@@ -126,27 +126,7 @@
                 <circle cx="100" cy="100" r="80" fill="none" stroke="#a855f7" stroke-width="40" stroke-dasharray="20 502" stroke-dashoffset="-483"/>
               </svg>
               <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <svg viewBox="0 0 100 100" class="rounded-full" style="width: 180px; height: 180px;">
-                  <defs>
-                    <radialGradient id="globeGrad" cx="35%" cy="35%" r="65%">
-                      <stop offset="0%" stop-color="#3b5a85"/>
-                      <stop offset="100%" stop-color="#243b5a"/>
-                    </radialGradient>
-                  </defs>
-                  <circle cx="50" cy="50" r="48" fill="url(#globeGrad)"/>
-                  <g stroke="rgba(220,230,245,0.15)" stroke-width="0.4" fill="none">
-                    <ellipse cx="50" cy="50" rx="48" ry="20"/>
-                    <ellipse cx="50" cy="50" rx="48" ry="35"/>
-                    <ellipse cx="50" cy="50" rx="48" ry="48"/>
-                    <ellipse cx="50" cy="50" rx="20" ry="48"/>
-                    <ellipse cx="50" cy="50" rx="35" ry="48"/>
-                  </g>
-                  <g fill="#3b5a85" stroke="rgba(220,230,245,0.4)" stroke-width="0.3">
-                    <path d="M 48 28 Q 56 25 60 32 Q 64 40 60 50 Q 58 62 52 70 Q 48 75 44 70 Q 40 62 42 50 Q 44 38 48 28 Z"/>
-                    <path d="M 60 30 Q 72 26 78 34 Q 80 42 74 46 Q 68 44 64 38 Z"/>
-                    <path d="M 22 36 Q 28 30 32 38 Q 34 50 30 60 Q 26 66 22 60 Q 18 50 22 36 Z"/>
-                  </g>
-                </svg>
+                <canvas id="hero-globe" style="width: 180px; height: 180px; border-radius: 50%; background: #243b5a;"></canvas>
               </div>
             </div>
           </div>
@@ -472,6 +452,93 @@
     </div>
   </div>
 </footer>
+
+<!-- ─── HERO GLOBE — real world map (d3-geo orthographic + world-atlas) ─── -->
+<!-- Mirrors the live HeroGlobe component used in the actual app: same      -->
+<!-- ocean / land colors, same ~10°/sec rotation. Loads d3-geo +            -->
+<!-- topojson-client + world-atlas land-110m.json from CDN at runtime.      -->
+<script type="module">
+  import { geoOrthographic, geoPath, geoGraticule10 } from 'https://esm.sh/d3-geo@3'
+  import { feature } from 'https://esm.sh/topojson-client@3'
+
+  const canvas = document.getElementById('hero-globe')
+  if (!canvas) {
+    /* nothing to render */
+  } else {
+    try {
+      const land110 = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json').then(r => r.json())
+      const land = feature(land110, land110.objects.land)
+
+      const dpr  = window.devicePixelRatio || 2
+      const size = 180
+      canvas.width  = size * dpr
+      canvas.height = size * dpr
+      const ctx = canvas.getContext('2d')
+      ctx.scale(dpr, dpr)
+
+      const projection = geoOrthographic()
+        .translate([size / 2, size / 2])
+        .scale(size / 2 - 2)
+        .clipAngle(90)
+
+      const path = geoPath(projection, ctx)
+
+      let lambda = 0
+      let lastT = performance.now()
+
+      function draw(t) {
+        if (document.hidden) {
+          /* pause rotation when tab is hidden to save cycles */
+          lastT = t
+          requestAnimationFrame(draw)
+          return
+        }
+        const dt = (t - lastT) / 1000
+        lastT = t
+        lambda += dt * 10                         // ~10°/sec
+        projection.rotate([lambda, -10])
+
+        ctx.clearRect(0, 0, size, size)
+
+        /* Ocean fill */
+        ctx.beginPath()
+        ctx.arc(size / 2, size / 2, size / 2 - 2, 0, 2 * Math.PI)
+        ctx.fillStyle = '#243b5a'
+        ctx.fill()
+
+        /* Graticule */
+        ctx.beginPath()
+        path(geoGraticule10())
+        ctx.strokeStyle = 'rgba(220,230,245,0.15)'
+        ctx.lineWidth = 0.5
+        ctx.stroke()
+
+        /* Land */
+        ctx.beginPath()
+        path(land)
+        ctx.fillStyle = '#3b5a85'
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(220,230,245,0.4)'
+        ctx.lineWidth = 0.4
+        ctx.stroke()
+
+        /* Outer ring */
+        ctx.beginPath()
+        ctx.arc(size / 2, size / 2, size / 2 - 2, 0, 2 * Math.PI)
+        ctx.strokeStyle = 'rgba(220,230,245,0.5)'
+        ctx.lineWidth = 1
+        ctx.stroke()
+
+        requestAnimationFrame(draw)
+      }
+      requestAnimationFrame(draw)
+    } catch (err) {
+      /* If d3-geo or world-atlas can't be loaded (e.g. offline preview),
+         the canvas falls back to its CSS background — solid ocean fill. */
+      console.warn('hero globe failed to load:', err)
+    }
+  }
+</script>
 
 </body>
 </html>
